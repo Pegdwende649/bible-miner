@@ -18,6 +18,7 @@ import time
 from multiprocessing import Pool
 import itertools
 from operator import itemgetter
+import re
 
 
 books_keys = pd.read_csv("./search_engine/data/keys/key_english.csv")
@@ -85,8 +86,6 @@ class Documents:
                 chapter_text = book_text[book_text["c"]==chapter]
                 for verse in chapter_text["v"]:
                     verse_text = chapter_text[chapter_text["v"] == verse]["t"].values[0]
-                    #print(self.directory_path+"verses/"+books_keys_dict[book]["name"]+str(chapter)+":"+str(verse)+".txt")
-                    #print(verse_text)
                     f = open(self.directory_path+"verses/"+books_keys_dict[book]["name"]+str(chapter)+"-"+str(verse)+".txt", "w",encoding="utf-8") 
                     f.write(verse_text)
                     f.close()  
@@ -111,6 +110,7 @@ class DataReader:
             documents_list.append(data)
             
         Data = pd.DataFrame(documents_list, columns = ['Text'])
+        Data["file_name"] = files_names_list
         
         return Data 
 
@@ -260,6 +260,9 @@ class sequential_index_algorithm:
         for dicti in index_list:
             key = list(dicti.keys())[0]
             val = list(dicti.values())[0]
+            file_name = Data["file_name"][val]                        
+            file_title_match = re.search("\\\\(.*).txt", file_name)
+            file_title = file_title_match.groups()[0]           
             doc_split = Data["Text"][val].split()
             num_words = len(doc_split)
             positions = list(locate(doc_split, lambda x: x == key))
@@ -267,10 +270,10 @@ class sequential_index_algorithm:
             occurences = len(positions)
 
             if key in keys:
-                upd_key_dict = {val:{"number of words" :num_words,"positions":positions,"occurences":occurences}}
+                upd_key_dict = {file_title:{"number of words" :num_words,"positions":positions,"occurences":occurences}}
                 index[key].update(upd_key_dict)
             else:
-                temp_index = {key : {val:{"number of words" :num_words,"positions":positions,"occurences":occurences}}}
+                temp_index = {key : {file_title:{"number of words" :num_words,"positions":positions,"occurences":occurences}}}
                 index.update(temp_index)
                 keys.append(key)
 
@@ -386,123 +389,128 @@ class index_builder:
 
 
 class Queries:
-    def __init__():
-        pass
+    def __init__(self, index,data):
+        self.index = index
+        self.Data = data
     
-    def single_word_query_occurences_ordered(index, word,display = True):
-        word = Preprocessor().preprocess(word)
+    def single_word_query_occurences_ordered(self,word,display = True):
+        word = Preprocessor.preprocess(word)
         
         try:
             
-            result = sorted(index[word].items(), key=lambda item: list(item[1].items())[2],reverse = True)
+            result = sorted(self.index[word].items(), key=lambda item: list(item[1].items())[2],reverse = True)
             if display:
                 print("This word occurs in the following documents:\n") 
                 for doc in result:
-                    print("-> "+files_names_list[doc[0]][5:]+" - Number of occurences : "+ str(doc[1]["occurences"]))
+                
+                    print("-> "+doc[0]+" - Number of occurences : "+ str(doc[1]["occurences"]))
             return result
         except KeyError:
             print(":( Sorry there is no result for this search")
             
-        
     
-    def single_word_query_frequency_ordered(index, word,display = True):
+            
+    
+    def single_word_query_frequency_ordered(self, word,display = True):
         
-        word =  Preprocessor().preprocess(word)
+        word =  Preprocessor.preprocess(word)
         try:
-            result = sorted(index[word].items(), key=lambda item: list(item[1].items())[2][1]/list(item[1].items())[0][1],reverse = True)
+            result = sorted(self.index[word].items(), key=lambda item: list(item[1].items())[2][1]/list(item[1].items())[0][1],reverse = True)
             if display:
                 print("This word occurs in the following documents:\n") 
                 for doc in result:
-                    print("-> "+files_names_list[doc[0]][5:]+" - Frequency : "+ str(round((doc[1]["occurences"]/doc[1]["number of words"])*100,4))+"%")
+                    print("-> "+doc[0]+" - Frequency : "+ str(round((doc[1]["occurences"]/doc[1]["number of words"])*100,4))+"%")
             return result
         except KeyError:
             print(":( Sorry there is no result for this search")
             
 
     
-    def single_word_query_tf_idf_ordered(index, word,display = True):
+    def single_word_query_tf_idf_ordered(self,word,display = True):
         
         from math import log
-        word =  Preprocessor().preprocess(word)
+        word =  Preprocessor.preprocess(word)
         try: 
-            result = sorted(index[word].items(), key=lambda item: (list(item[1].items())[2][1]/list(item[1].items())[0][1])*(log(len(Data)/(len(index[word])+1))),reverse = True)
+            result = sorted(self.index[word].items(), key=lambda item: (list(item[1].items())[2][1]/list(item[1].items())[0][1])*(log(len(self.Data)/(len(self.index[word])+1))),reverse = True)
             if display:
                 print("This word occurs in the following documents:\n") 
                 for doc in result:
-                    print("-> "+files_names_list[doc[0]][5:]+" - TD-IDF : "+ str(round((doc[1]["occurences"]/doc[1]["number of words"])*log(len(Data)/(len(index[word])+1)),4)))
+                    print("-> "+doc[0]+" - TD-IDF : "+ str(round((doc[1]["occurences"]/doc[1]["number of words"])*log(len(self.Data)/(len(self.index[word])+1)),4)))
             return result
         except KeyError:
             print(":( Sorry there is no result for this search")
-
-    
-    def free_text_query(index,words_list,display = True):
-        words_list = [ Preprocessor().preprocess(word) for word in words_list]
         
+        
+        
+    
+    def free_text_query(self,words_list,display = True):
+        words_list = [ Preprocessor.preprocess(word) for word in words_list]
         try: 
-            doc_set = set([])
+            result = set([])
             for word in words_list:
-                doc_set = doc_set.union(set(list(index[word].keys())))
+                result = result.union(set(list(self.index[word].keys())))
             if display:
-                print( "This is the list of documents contaning at least of the given words")
-                for doc in doc_set:
-                    print("-> "+files_names_list[doc][5:]) 
+                print( "This is the list of documents contaning at least one of the given words")
+                for doc in result:
+                    print("-> "+doc) 
             return result
         except KeyError:
-            print(":( Sorry at least one word was not found in any file")
+            print(":( Sorry There wer no file containing at least one word")
 
             
             
-    def key_words_query(index,words_list,display = True):
-        words_list = [ Preprocessor().preprocess(word) for word in words_list]
+    def key_words_query(self,words_list,display = True):
+        words_list = [ Preprocessor.preprocess(word) for word in words_list]
         try:
-            doc_set = set(list(index[words_list[0]].keys()))
+            result = set(list(self.index[words_list[0]].keys()))
             for word in words_list:
-                doc_set = doc_set.intersection(set(list(index[word].keys())))
+                result = result.intersection(set(list(self.index[word].keys())))
             
             if display:
                 print( "This is the list of documents contaning the given words simultaneously")
 
-                for doc in doc_set:
-                    print("-> "+files_names_list[doc][5:])
+                for doc in result:
+                    print("-> "+doc)
             return result
         except:
             print(":( Sorry at least one word was not found in any file")
 
-    def exact_match(index,sentence,display = True):
+    def exact_match_query(self,sentence,display = True):
         
         
         words_list = sentence.split()
-        sentence =  Preprocessor().preprocess(sentence)
+        sentence =  Preprocessor.preprocess(sentence)
         words_list = sentence.split()
         result_sets = []
         final_result = []
         for word in words_list:
-            result = queries.single_word_query_occurences_ordered(index_sequential, word,display = False)
+            result = self.single_word_query_occurences_ordered(word,display = False)
             result_set = {i[0] for i in result}
             result_sets.append(result_set)
         intersection_docs = reduce(set.intersection,result_sets)   
         for doc in intersection_docs:
             words_positions = []
             for word_num,word in enumerate(words_list):
-                word_positions = set(list(np.array(index_sequential[word][doc]["positions"])-word_num))
+                word_positions = set(list(np.array(self.index[word][doc]["positions"])-word_num))
                 words_positions.append(word_positions)
             intersect_positions = reduce(set.intersection,words_positions)
             if len(intersect_positions)!=0:
+                final_result.append(doc)
                 if display:
-                    print(files_names_list[doc][5:]+ " --- "+str(len(intersect_positions))+" time(s) in this document")
+                    print(doc+ " --- "+str(len(intersect_positions))+" time(s) in this document")
 
         return final_result
 
                 
-    def sentence_query_vector_space(index,sentence,vectorizer,results_numb):
-        sentence =  Preprocessor().preprocess(sentence)
-        data_matrix = vectorizer.transform(Data["Text"])
+    def sentence_query_vector_space(self,sentence,vectorizer,results_numb):
+        sentence =  Preprocessor.preprocess(sentence)
+        data_matrix = vectorizer.transform(self.Data["Text"])
         sentence_matrix = vectorizer.transform([sentence])
         result_distances = data_matrix.dot(sentence_matrix.transpose())
         result_distances=result_distances.toarray()
         sort_index = np.argsort((-np.array([i[0] for i in result_distances.tolist()])))
         print("the "+str(results_numb)+" best results are :")
         for doc_index in list(sort_index)[:results_numb]:
-            print("-> Doc "+str(files_names_list[doc_index][4:]))
-        
+            print("-> Doc "+str(doc_index[0]))
+
     
